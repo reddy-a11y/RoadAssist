@@ -1,3 +1,4 @@
+
 const express = require('express');
 const http = require('http');
 const path = require('path');
@@ -6,7 +7,10 @@ const helmet = require('helmet');
 const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
 const { Server } = require('socket.io');
-require('dotenv').config({ path: path.join(__dirname, '.env') });
+
+require('dotenv').config({
+  path: path.join(__dirname, '.env')
+});
 
 const db = require('./config/db');
 const initializeSocketIO = require('./sockets/socketHandler');
@@ -25,55 +29,76 @@ const adminRoutes = require('./routes/adminRoutes');
 const app = express();
 const server = http.createServer(app);
 
+// Allowed frontend origins
+const allowedOrigins = (
+  process.env.CLIENT_URL || 'http://localhost:5174'
+)
+  .split(',')
+  .map(origin => origin.trim());
+
+// CORS configuration
+const corsOptions = {
+  origin: allowedOrigins,
+  credentials: true,
+  methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS']
+};
+
 // Initialize Socket.IO
 const io = new Server(server, {
-  cors: {
-    origin: '*',
-    methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE'],
-    credentials: true
-  }
+  cors: corsOptions
 });
+
 initializeSocketIO(io);
 
-// Make io accessible throughout Express controllers
+// Make Socket.IO accessible in controllers
 app.set('io', io);
 
-// Security & Utility Middlewares
+// Security middleware
 app.use(helmet({
-  crossOriginResourcePolicy: { policy: "cross-origin" }
+  crossOriginResourcePolicy: {
+    policy: 'cross-origin'
+  }
 }));
-app.use(cors({
-  origin: '*',
-  credentials: true
-}));
-app.use(morgan('dev'));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 
-// Global Rate Limiter: 500 requests per 15 minutes per IP
+app.use(cors(corsOptions));
+
+app.use(morgan('combined'));
+
+app.use(express.json({ limit: '10mb' }));
+
+app.use(express.urlencoded({
+  extended: true,
+  limit: '10mb'
+}));
+
+// Rate limiter
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 500,
   message: {
     success: false,
-    message: 'Too many requests from this IP, please try again after a few minutes.'
+    message: 'Too many requests. Please try again later.'
   }
 });
+
 app.use('/api/', limiter);
 
-// Static Uploads Directory
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+// Static uploads
+app.use(
+  '/uploads',
+  express.static(path.join(__dirname, 'uploads'))
+);
 
-// Health Check API
+// Health check
 app.get('/api/health', (req, res) => {
-  res.json({
+  res.status(200).json({
     status: 'healthy',
     platform: 'RoadAssist - Smart Roadside Assistance API',
     timestamp: new Date().toISOString()
   });
 });
 
-// API Routes Mount
+// API routes
 app.use('/api/auth', authRoutes);
 app.use('/api/vehicles', vehicleRoutes);
 app.use('/api/services', serviceRoutes);
@@ -83,22 +108,26 @@ app.use('/api/reviews', reviewRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/admin', adminRoutes);
 
-// 404 handler for unknown routes
-app.use((req, res, next) => {
+// 404 handler
+app.use((req, res) => {
   res.status(404).json({
     success: false,
     message: `API endpoint '${req.method} ${req.originalUrl}' not found.`
   });
 });
 
-// Centralized error handler
+// Error handler
 app.use(errorHandler);
 
+// Render port configuration
 const PORT = process.env.PORT || 5000;
-server.listen(PORT, () => {
-  console.log(`====================================================`);
-  console.log(`🚀 RoadAssist Backend Server running on port ${PORT}`);
-  console.log(`📡 Socket.IO Real-Time Engine Active`);
-  console.log(`🔗 Health Check: http://localhost:${PORT}/api/health`);
-  console.log(`====================================================`);
+
+server.listen(PORT, '0.0.0.0', () => {
+  console.log('==============================================');
+  console.log('RoadAssist Backend Started Successfully');
+  console.log(`Server Port: ${PORT}`);
+  console.log('Socket.IO Real-Time Engine Active');
+  console.log(`Health Check: /api/health`);
+  console.log('==============================================');
 });
+
